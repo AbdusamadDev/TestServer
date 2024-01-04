@@ -4,6 +4,7 @@ from rest_framework.decorators import api_view
 from django.db.utils import OperationalError
 from rest_framework.response import Response
 
+
 #  ######################### Local apps imports ###########################
 from android.utils import find_nearest_location
 from android.serializers import (
@@ -16,8 +17,10 @@ from android.models import (
     TempClientLocations,
     TempRecords,
     Criminals,
+    UniqueKey,
     Camera,
 )
+import uuid
 
 
 class AndroidRequestHandlerAPIView(ModelViewSet):
@@ -27,6 +30,16 @@ class AndroidRequestHandlerAPIView(ModelViewSet):
     serializer_class = TempClientLocationsSerializer
 
     def create(self, request, *args, **kwargs):
+        uuid = request.headers.get("token", None)
+        if uuid is None:
+            return Response({"msg": "Token is not provided!"}, status=400)
+        try:
+            uuid_object = UniqueKey.objects.get(uuid=uuid)
+        except UniqueKey.DoesNotExist:
+            return Response({"msg": "Invalid token provided!"}, status=400)
+        except Exception:
+            return Response({"msg": "Unknown error occued, try again"}, status=422)
+        uuid_object.delete()
         serializer = self.serializer_class(data=request.data)
         serializer.is_valid(raise_exception=True)
         longitude = serializer.validated_data.get("longitude")
@@ -118,3 +131,10 @@ def fetch_criminals(request):
     clients = Criminals.objects.all()
     serializer = CriminalsSerializer(instance=clients, many=True)
     return Response(serializer.data, status=200)
+
+
+@api_view(http_method_names=["GET"])
+def generate_token(request):
+    token = uuid.uuid4()
+    UniqueKey.objects.get_or_create(uuid=token)
+    return Response({"token": token})

@@ -62,5 +62,8 @@ class TempRecords(models.Model):
 
 
 class TempClientLocations(models.Model):
-    longitude = models.FloatField(unique=True)
-    latitude = models.FloatField(unique=True)
+    longitude = models.FloatField()
+    latitude = models.FloatField()
+
+class UniqueKey(models.Model):
+    uuid = models.UUIDField()
