@@ -28,31 +28,32 @@ class AndroidRequestHandlerAPIView(ModelViewSet):
     lookup_field = "pk"
     queryset = TempClientLocations.objects.all()
     serializer_class = TempClientLocationsSerializer
+    clients = dict()
 
     def create(self, request, *args, **kwargs):
-        uuid = request.headers.get("token", None)
-        if uuid is None:
+        uuid_key = request.headers.get("token", None)
+        if uuid_key is None:
             return Response({"msg": "Token is not provided!"}, status=400)
         try:
-            uuid_object = UniqueKey.objects.get(uuid=uuid)
+            uuid_object = UniqueKey.objects.get(uuid=uuid_key)
         except UniqueKey.DoesNotExist:
             return Response({"msg": "Invalid token provided!"}, status=400)
-        except Exception:
-            return Response({"msg": "Unknown error occued, try again"}, status=422)
+        # except Exception:
+
+        # return Response({"msg": "Unknown error occued, try again"}, status=422)
         uuid_object.delete()
         serializer = self.serializer_class(data=request.data)
         serializer.is_valid(raise_exception=True)
         longitude = serializer.validated_data.get("longitude")
         latitude = serializer.validated_data.get("latitude")
-        clients = list(self.queryset.values())
-        print(clients)
-        if (latitude not in [key.get("latitude") for key in clients]) and (
-            longitude not in [key.get("longitude") for key in clients]
-        ):
+        longitudes = [key.get("longitude") for key in self.clients.values()]
+        latitudes = [key.get("latitude") for key in self.clients.values()]
+        if (latitude not in latitudes) and (longitude not in longitudes):
             try:
-                pk = self.model.objects.create(longitude=longitude, latitude=latitude)
+                pk = get_unique_key(list(self.clients.keys()))
+                self.clients[pk] = {"longitude": longitude, "latitude": latitude}
                 return Response(
-                    {"msg": "Client connected", "client_pk": pk.pk}, status=201
+                    {"msg": "Client connected", "client_pk": pk}, status=201
                 )
             except Exception as error:
                 print("Passing delete because of: ", error)
@@ -65,51 +66,59 @@ class AndroidRequestHandlerAPIView(ModelViewSet):
             headers = request.headers
             longitude = headers.get("longitude", None)
             latitude = headers.get("latitude", None)
+            client_id = headers.get("client-id", None)
             if longitude is None or latitude is None:
                 return Response(
                     {"msg": "Longitude or Latitude is not provided in headers"}
                 )
-
-            clients = list(self.queryset.values())
+            if client_id is None:
+                return Response({"msg": "Client ID is not provided"}, status=400)
+            self.clients[client_id] = {"longitude": longitude, "latitude": latitude}
+            clients = list(self.clients.values())
             camera = TempRecords.objects.all().first()
             if camera is not None:
-                print("Camera: ", camera)
                 camera = camera.record.camera
             else:
+                print("Camera is being None: ", camera)
                 return Response({})
             camera_object = Camera.objects.get(pk=camera.pk)
-            print("Camera object: ", camera_object)
-            print("Long cm: ", camera_object.longitude)
-            print("Lat cm: ", camera_object.latitude)
             target_location = {
                 "longitude": camera_object.longitude,
                 "latitude": camera_object.latitude,
             }
-            print("Clients: ", clients)
             if not clients or clients is None:
                 return Response({"msg": "No clients connected yet!"}, status=422)
             nearest_location = find_nearest_location(target_location, clients)
+            print(
+                "Float longitude of nearest location: ",
+                float(nearest_location.get("longitude")),
+            )
+            print(
+                "Float latitude of nearest location: ",
+                float(nearest_location.get("latitude")),
+            )
+            print(float(longitude), float(latitude))
+            print(
+                "Condition 1: ",
+                float(nearest_location.get("longitude")) == float(longitude),
+            )
+            print(
+                "Condition 2: ",
+                float(nearest_location.get("latitude")) == float(latitude),
+            )
             if (float(nearest_location.get("longitude")) == float(longitude)) and (
-                float(nearest_location.get("latitude") == float(latitude))
+                float(nearest_location.get("latitude")) == float(latitude)
             ):
                 TempRecords.objects.all().delete()
                 return Response(TempRecordsSerializer(query).data)
-            return Response({})
+            else:
+                print(
+                    "Full conditiion: ",
+                    float(nearest_location.get("longitude")) == float(longitude), float(nearest_location.get("latitude")) == float(latitude),
+                )
+                return Response({})
         except OperationalError:
             return Response({})
-
-    def destroy(self, request, pk, *args, **kwargs):
-        headers = request.headers
-        if "longitude" not in headers.keys() or "latitude" not in headers.keys():
-            return Response(
-                {"msg": "Required headers not provided: longitude & latitude"}
-            )
-
-        client = TempClientLocations.objects.get(pk=pk)
-        if not client:
-            return Response({"msg": f"Client with id: {pk} not found!"}, status=404)
-        client.delete()
-        return Response(status=204)
 
 
 @api_view(http_method_names=["GET"])
